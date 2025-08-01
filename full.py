@@ -3,8 +3,11 @@ import pandas as pd
 from fastapi import FastAPI
 from pydantic import BaseModel
 import uvicorn
-from fastapi.middleware.cors import CORSMiddleware 
+from fastapi.middleware.cors import CORSMiddleware
+import os
+
 app = FastAPI()
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], 
@@ -12,14 +15,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-# Load The Model
-with open('full_integrated_model.pkl', 'rb') as f:
-    models = pickle.load(f)
-eligibility_model = models["eligibility"]
-payment_model = models["payment"]
-surplus_model = models["surplus"]
 
-# Analysis Form Inputs
 class FullInput(BaseModel):
     income: int
     commitments: int
@@ -57,7 +53,6 @@ def suggest_products(eligibility_percent, commitment_ratio, age, months_in_job):
         reason_str = "؛ ".join(reasons) if reasons else "سبب غير محدد - تحقق من البيانات"
         return f"غير مؤهل بسبب: {reason_str}"
 
-# دالة لاقتراح استثمارات
 def suggest_investment(surplus, eligibility_percent):
     investments = [
         "حساب توفير ( 2%)",
@@ -78,7 +73,15 @@ def suggest_investment(surplus, eligibility_percent):
 
 @app.post("/predict_full")
 def predict_full(data: FullInput):
-    # تنبؤ التأهيل=>مؤهل,غير مؤهل
+
+    with open('full_integrated_model.pkl', 'rb') as f:
+        models = pickle.load(f)
+
+    eligibility_model = models["eligibility"]
+    payment_model = models["payment"]
+    surplus_model = models["surplus"]
+
+    # تنبؤ التأهيل
     el_df = pd.DataFrame({
         "الدخل": [data.income],
         "الالتزامات": [data.commitments],
@@ -90,7 +93,7 @@ def predict_full(data: FullInput):
     })
     eligibility_percent = round(eligibility_model.predict(el_df)[0], 1)
 
-    # حساب نسبة الالتزامات 
+    # نسبة الالتزامات
     commitment_ratio = data.commitments / data.income if data.income > 0 else 0
 
     # تنبؤ الدفعة الشهرية
@@ -111,6 +114,7 @@ def predict_full(data: FullInput):
     })
     surplus = round(surplus_model.predict(sur_df)[0], 1)
 
+    # التوصيات
     products = suggest_products(eligibility_percent, commitment_ratio, data.age, data.months_in_job)
     investment = suggest_investment(surplus, eligibility_percent)
 
@@ -122,8 +126,5 @@ def predict_full(data: FullInput):
     }
 
 if __name__ == "__main__":
-    import os
     port = int(os.environ.get("PORT", 10000))
     uvicorn.run(app, host="0.0.0.0", port=port)
-
-
